@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "DryRun Visualizer"
+description = "A Java learning workspace for students to edit short programs, provide standard input, and inspect execution step by step through variables, the call stack, heap objects, and output."
+version = "1.0.0"
+id = "artifacts/dryrun-visualizer"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18670
+
+[services.development]
+run = "pnpm --filter @workspace/dryrun-visualizer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/dryrun-visualizer", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/dryrun-visualizer/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18670"
+BASE_PATH = "/"

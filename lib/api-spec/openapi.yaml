@@ -2,14 +2,16 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: API specification
+  version: 1.0.0
+  description: DryRun Visualizer API and versioned trace protocol
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: tracing
+    description: Java execution tracing
 paths:
   /healthz:
     get:
@@ -24,13 +26,599 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /health:
+    get:
+      operationId: getDryRunHealth
+      tags: [health]
+      summary: DryRun service health
+      responses:
+        "200":
+          description: Service health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /languages:
+    get:
+      operationId: listLanguages
+      tags: [tracing]
+      summary: List supported tracing languages
+      responses:
+        "200":
+          description: Languages available from the adapter registry
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schemaVersion, languages]
+                properties:
+                  schemaVersion:
+                    type: string
+                    const: "1.0.0"
+                  languages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LanguageAdapterDescriptor"
+  /trace:
+    post:
+      operationId: createTrace
+      tags: [tracing]
+      summary: Trace a Java program
+      description: >
+        Streams meta, step, and end records as NDJSON by default. Clients may
+        request application/json for a complete TraceDocument.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TraceRequest"
+      responses:
+        "200":
+          description: A complete trace document or a flushed NDJSON stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceDocument"
+            application/x-ndjson:
+              schema:
+                $ref: "#/components/schemas/TraceStreamRecord"
+                description: >
+                  The schema applies to each NDJSON line. The response body is a
+                  streamed sequence of JSON records, not a JSON array.
+        "400":
+          description: Invalid request, unsupported language, or rejected source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "429":
+          description: Rate limit or bounded runner queue is full
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: No isolated language runner is available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
     HealthStatus:
       type: object
+      additionalProperties: false
       properties:
         status:
           type: string
+          enum: [ok, degraded]
       required:
         - status
+    ApiError:
+      type: object
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+      required: [error, code]
+    TraceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        schemaVersion:
+          type: string
+          const: "1.0.0"
+        language:
+          type: string
+          minLength: 1
+          maxLength: 32
+        code:
+          type: string
+          maxLength: 20000
+        stdin:
+          type: string
+          maxLength: 5000
+      required: [schemaVersion, language, code, stdin]
+    RunnerJob:
+      type: object
+      additionalProperties: false
+      properties:
+        schemaVersion:
+          type: string
+          const: "1.0.0"
+        language:
+          type: string
+          minLength: 1
+          maxLength: 32
+        code:
+          type: string
+          maxLength: 20000
+        stdin:
+          type: string
+          maxLength: 5000
+        limits:
+          $ref: "#/components/schemas/TraceLimits"
+      required: [schemaVersion, language, code, stdin, limits]
+    LanguageAdapterDescriptor:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        version:
+          type: string
+        fileExtension:
+          type: string
+        starterTemplate:
+          type: string
+        examples:
+          type: array
+          items:
+            $ref: "#/components/schemas/LanguageExample"
+        limits:
+          $ref: "#/components/schemas/TraceLimits"
+      required: [id, displayName, version, fileExtension, starterTemplate, examples, limits]
+    LanguageExample:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        code:
+          type: string
+        stdin:
+          type: string
+      required: [id, title, description, code, stdin]
+    TraceLimits:
+      type: object
+      additionalProperties: false
+      properties:
+        maxSteps:
+          type: integer
+          minimum: 1
+        totalTimeoutMs:
+          type: integer
+          minimum: 1
+        compileTimeoutMs:
+          type: integer
+          minimum: 1
+        traceTimeoutMs:
+          type: integer
+          minimum: 1
+        maxOutputBytes:
+          type: integer
+          minimum: 1
+        maxStdinBytes:
+          type: integer
+          minimum: 0
+        maxCodeBytes:
+          type: integer
+          minimum: 1
+      required: [maxSteps, totalTimeoutMs, compileTimeoutMs, traceTimeoutMs, maxOutputBytes, maxStdinBytes, maxCodeBytes]
+    ValueRef:
+      oneOf:
+        - $ref: "#/components/schemas/PrimitiveValueRef"
+        - $ref: "#/components/schemas/ObjectValueRef"
+        - $ref: "#/components/schemas/NullValueRef"
+        - $ref: "#/components/schemas/UninitializedValueRef"
+      discriminator:
+        propertyName: kind
+    PrimitiveValueRef:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: prim
+        type:
+          type: string
+        value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+      required: [kind, type, value]
+    ObjectValueRef:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: ref
+        id:
+          type: string
+          pattern: "^o[1-9][0-9]*$"
+      required: [kind, id]
+    NullValueRef:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: null
+      required: [kind]
+    UninitializedValueRef:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: uninitialized
+      required: [kind]
+    HeapObject:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^o[1-9][0-9]*$"
+        type:
+          type: string
+        kind:
+          type: string
+          enum: [array, list, map, set, string, object, boxed]
+        elements:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValueRef"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/HeapEntry"
+        fields:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ValueRef"
+        size:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+      required: [id, type, kind, size]
+      oneOf:
+        - required: [elements]
+        - required: [entries]
+        - required: [fields]
+    HeapEntry:
+      type: object
+      additionalProperties: false
+      properties:
+        key:
+          $ref: "#/components/schemas/ValueRef"
+        value:
+          $ref: "#/components/schemas/ValueRef"
+      required: [key, value]
+    StackFrame:
+      type: object
+      additionalProperties: false
+      properties:
+        method:
+          type: string
+        class:
+          type: string
+        line:
+          type: ["integer", "null"]
+        locals:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ValueRef"
+      required: [method, class, line, locals]
+    TraceFrameRef:
+      type: object
+      additionalProperties: false
+      properties:
+        method:
+          type: string
+        class:
+          type: string
+      required: [method, class]
+    TraceError:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+        message:
+          type: string
+        line:
+          type: ["integer", "null"]
+        stackTrace:
+          type: array
+          items:
+            type: string
+      required: [type, message, line, stackTrace]
+    TraceDiagnostic:
+      type: object
+      additionalProperties: false
+      properties:
+        line:
+          type: ["integer", "null"]
+        column:
+          type: ["integer", "null"]
+        message:
+          type: string
+        severity:
+          type: string
+          enum: [error, warning, info]
+      required: [line, column, message, severity]
+    TraceStep:
+      type: object
+      additionalProperties: false
+      properties:
+        step:
+          type: integer
+          minimum: 0
+        event:
+          type: string
+          enum: [line, call, return, exception, exit]
+        line:
+          type: ["integer", "null"]
+        frame:
+          $ref: "#/components/schemas/TraceFrameRef"
+        stack:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/StackFrame"
+        stackTruncated:
+          type: integer
+          minimum: 0
+        statics:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ValueRef"
+        heap:
+          type: object
+          maxProperties: 500
+          additionalProperties:
+            $ref: "#/components/schemas/HeapObject"
+        stdout:
+          type: string
+        stderr:
+          type: string
+        changed:
+          type: array
+          items:
+            type: string
+        explanation:
+          type: string
+          minLength: 1
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/TraceError"
+            - type: "null"
+      required: [step, event, line, frame, stack, stackTruncated, statics, heap, stdout, stderr, changed, explanation, error]
+    JsonPatchOperation:
+      type: object
+      additionalProperties: false
+      properties:
+        op:
+          type: string
+          enum: [add, remove, replace]
+        path:
+          type: string
+          pattern: "^/(stack|statics|heap)(/.*)?$"
+        value:
+          description: Required for add and replace; omitted for remove.
+      required: [op, path]
+    KeyframeStep:
+      type: object
+      additionalProperties: false
+      properties:
+        storage:
+          type: string
+          const: keyframe
+        step:
+          type: integer
+          minimum: 0
+        snapshot:
+          $ref: "#/components/schemas/TraceStep"
+      required: [storage, step, snapshot]
+    DeltaStep:
+      type: object
+      additionalProperties: false
+      properties:
+        storage:
+          type: string
+          const: delta
+        step:
+          type: integer
+          minimum: 0
+        event:
+          type: string
+          enum: [line, call, return, exception, exit]
+        line:
+          type: ["integer", "null"]
+        frame:
+          $ref: "#/components/schemas/TraceFrameRef"
+        stackTruncated:
+          type: integer
+          minimum: 0
+        patch:
+          type: array
+          items:
+            $ref: "#/components/schemas/JsonPatchOperation"
+        stdout:
+          type: string
+        stderr:
+          type: string
+        changed:
+          type: array
+          items:
+            type: string
+        explanation:
+          type: string
+          minLength: 1
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/TraceError"
+            - type: "null"
+      required: [storage, step, event, line, frame, stackTruncated, patch, stdout, stderr, changed, explanation, error]
+    StoredTraceStep:
+      oneOf:
+        - $ref: "#/components/schemas/KeyframeStep"
+        - $ref: "#/components/schemas/DeltaStep"
+      discriminator:
+        propertyName: storage
+    TraceAnnotation:
+      type: object
+      additionalProperties: false
+      properties:
+        stepIndex:
+          type: integer
+          minimum: 0
+        severity:
+          type: string
+          enum: [info, warning, error]
+        code:
+          type: string
+        message:
+          type: string
+      required: [stepIndex, severity, code, message]
+    TraceEnd:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok, compile_error, runtime_error, truncated, timeout]
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/TraceDiagnostic"
+      required: [status, diagnostics]
+    TraceMetaLine:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: meta
+        schemaVersion:
+          type: string
+          const: "1.0.0"
+        traceId:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        language:
+          type: string
+        languageVersion:
+          type: string
+        meta:
+          type: object
+          properties:
+            flags:
+              type: array
+              items:
+                type: string
+      required: [type, schemaVersion, traceId, language, languageVersion, meta]
+    TraceStepLine:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: step
+        schemaVersion:
+          type: string
+          const: "1.0.0"
+        data:
+          $ref: "#/components/schemas/StoredTraceStep"
+      required: [type, schemaVersion, data]
+    TraceEndLine:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          const: end
+        schemaVersion:
+          type: string
+          const: "1.0.0"
+        end:
+          $ref: "#/components/schemas/TraceEnd"
+      required: [type, schemaVersion, end]
+    TraceStreamRecord:
+      oneOf:
+        - $ref: "#/components/schemas/TraceMetaLine"
+        - $ref: "#/components/schemas/TraceStepLine"
+        - $ref: "#/components/schemas/TraceEndLine"
+      discriminator:
+        propertyName: type
+    FeatureFlags:
+      type: object
+      additionalProperties: false
+      properties:
+        shareLinks:
+          type: boolean
+          default: false
+        compare:
+          type: boolean
+          default: false
+        aiExplain:
+          type: boolean
+          default: false
+    TraceDocument:
+      type: object
+      additionalProperties: false
+      properties:
+        traceId:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        schemaVersion:
+          type: string
+          const: "1.0.0"
+        language:
+          type: string
+        languageVersion:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+        stdin:
+          type: string
+        meta:
+          type: object
+          additionalProperties: true
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoredTraceStep"
+        annotations:
+          type: array
+          items:
+            $ref: "#/components/schemas/TraceAnnotation"
+        end:
+          $ref: "#/components/schemas/TraceEnd"
+      required: [traceId, schemaVersion, language, languageVersion, createdAt, source, stdin, meta, steps, annotations, end]
 

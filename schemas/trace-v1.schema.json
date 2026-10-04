@@ -1,0 +1,972 @@
+{
+  "$defs": {
+    "ApiError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error",
+        "code"
+      ],
+      "type": "object"
+    },
+    "DeltaStep": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TraceError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event": {
+          "enum": [
+            "line",
+            "call",
+            "return",
+            "exception",
+            "exit"
+          ],
+          "type": "string"
+        },
+        "explanation": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "frame": {
+          "$ref": "#/$defs/TraceFrameRef"
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "patch": {
+          "items": {
+            "$ref": "#/$defs/JsonPatchOperation"
+          },
+          "type": "array"
+        },
+        "stackTruncated": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "step": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "storage": {
+          "const": "delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "storage",
+        "step",
+        "event",
+        "line",
+        "frame",
+        "stackTruncated",
+        "patch",
+        "stdout",
+        "stderr",
+        "changed",
+        "explanation",
+        "error"
+      ],
+      "type": "object"
+    },
+    "FeatureFlags": {
+      "additionalProperties": false,
+      "properties": {
+        "aiExplain": {
+          "default": false,
+          "type": "boolean"
+        },
+        "compare": {
+          "default": false,
+          "type": "boolean"
+        },
+        "shareLinks": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "HealthStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "degraded"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "HeapEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/ValueRef"
+        },
+        "value": {
+          "$ref": "#/$defs/ValueRef"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "HeapObject": {
+      "oneOf": [
+        {
+          "required": [
+            "elements"
+          ]
+        },
+        {
+          "required": [
+            "entries"
+          ]
+        },
+        {
+          "required": [
+            "fields"
+          ]
+        }
+      ],
+      "properties": {
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/ValueRef"
+          },
+          "type": "array"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/HeapEntry"
+          },
+          "type": "array"
+        },
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ValueRef"
+          },
+          "type": "object"
+        },
+        "id": {
+          "pattern": "^o[1-9][0-9]*$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "array",
+            "list",
+            "map",
+            "set",
+            "string",
+            "object",
+            "boxed"
+          ],
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "kind",
+        "size"
+      ],
+      "type": "object"
+    },
+    "JsonPatchOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "add",
+            "remove",
+            "replace"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "pattern": "^/(stack|statics|heap)(/.*)?$",
+          "type": "string"
+        },
+        "value": {
+          "description": "Required for add and replace; omitted for remove."
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    "KeyframeStep": {
+      "additionalProperties": false,
+      "properties": {
+        "snapshot": {
+          "$ref": "#/$defs/TraceStep"
+        },
+        "step": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "storage": {
+          "const": "keyframe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "storage",
+        "step",
+        "snapshot"
+      ],
+      "type": "object"
+    },
+    "LanguageAdapterDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "displayName": {
+          "type": "string"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/LanguageExample"
+          },
+          "type": "array"
+        },
+        "fileExtension": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/TraceLimits"
+        },
+        "starterTemplate": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "displayName",
+        "version",
+        "fileExtension",
+        "starterTemplate",
+        "examples",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "LanguageExample": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "stdin": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "code",
+        "stdin"
+      ],
+      "type": "object"
+    },
+    "NullValueRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": null,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ObjectValueRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^o[1-9][0-9]*$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    "PrimitiveValueRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "prim",
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "RunnerJob": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 20000,
+          "type": "string"
+        },
+        "language": {
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/TraceLimits"
+        },
+        "schemaVersion": {
+          "const": "1.0.0",
+          "type": "string"
+        },
+        "stdin": {
+          "maxLength": 5000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "language",
+        "code",
+        "stdin",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "StackFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "type": "string"
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "locals": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ValueRef"
+          },
+          "type": "object"
+        },
+        "method": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "class",
+        "line",
+        "locals"
+      ],
+      "type": "object"
+    },
+    "StoredTraceStep": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/KeyframeStep"
+        },
+        {
+          "$ref": "#/$defs/DeltaStep"
+        }
+      ]
+    },
+    "TraceAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "type": "string"
+        },
+        "stepIndex": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stepIndex",
+        "severity",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "TraceDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "column",
+        "message",
+        "severity"
+      ],
+      "type": "object"
+    },
+    "TraceDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/TraceAnnotation"
+          },
+          "type": "array"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "end": {
+          "$ref": "#/$defs/TraceEnd"
+        },
+        "language": {
+          "type": "string"
+        },
+        "languageVersion": {
+          "type": "string"
+        },
+        "meta": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": "1.0.0",
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "stdin": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/StoredTraceStep"
+          },
+          "type": "array"
+        },
+        "traceId": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "traceId",
+        "schemaVersion",
+        "language",
+        "languageVersion",
+        "createdAt",
+        "source",
+        "stdin",
+        "meta",
+        "steps",
+        "annotations",
+        "end"
+      ],
+      "type": "object"
+    },
+    "TraceEnd": {
+      "additionalProperties": false,
+      "properties": {
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/TraceDiagnostic"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "compile_error",
+            "runtime_error",
+            "truncated",
+            "timeout"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "diagnostics"
+      ],
+      "type": "object"
+    },
+    "TraceEndLine": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "$ref": "#/$defs/TraceEnd"
+        },
+        "schemaVersion": {
+          "const": "1.0.0",
+          "type": "string"
+        },
+        "type": {
+          "const": "end",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "schemaVersion",
+        "end"
+      ],
+      "type": "object"
+    },
+    "TraceError": {
+      "additionalProperties": false,
+      "properties": {
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "stackTrace": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message",
+        "line",
+        "stackTrace"
+      ],
+      "type": "object"
+    },
+    "TraceFrameRef": {
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "class"
+      ],
+      "type": "object"
+    },
+    "TraceLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "compileTimeoutMs": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxCodeBytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxOutputBytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxStdinBytes": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxSteps": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "totalTimeoutMs": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "traceTimeoutMs": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "maxSteps",
+        "totalTimeoutMs",
+        "compileTimeoutMs",
+        "traceTimeoutMs",
+        "maxOutputBytes",
+        "maxStdinBytes",
+        "maxCodeBytes"
+      ],
+      "type": "object"
+    },
+    "TraceMetaLine": {
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "type": "string"
+        },
+        "languageVersion": {
+          "type": "string"
+        },
+        "meta": {
+          "properties": {
+            "flags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": "1.0.0",
+          "type": "string"
+        },
+        "traceId": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "meta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "schemaVersion",
+        "traceId",
+        "language",
+        "languageVersion",
+        "meta"
+      ],
+      "type": "object"
+    },
+    "TraceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 20000,
+          "type": "string"
+        },
+        "language": {
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": "1.0.0",
+          "type": "string"
+        },
+        "stdin": {
+          "maxLength": 5000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "language",
+        "code",
+        "stdin"
+      ],
+      "type": "object"
+    },
+    "TraceStep": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TraceError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event": {
+          "enum": [
+            "line",
+            "call",
+            "return",
+            "exception",
+            "exit"
+          ],
+          "type": "string"
+        },
+        "explanation": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "frame": {
+          "$ref": "#/$defs/TraceFrameRef"
+        },
+        "heap": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HeapObject"
+          },
+          "maxProperties": 500,
+          "type": "object"
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stack": {
+          "items": {
+            "$ref": "#/$defs/StackFrame"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "stackTruncated": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "statics": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ValueRef"
+          },
+          "type": "object"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "step": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step",
+        "event",
+        "line",
+        "frame",
+        "stack",
+        "stackTruncated",
+        "statics",
+        "heap",
+        "stdout",
+        "stderr",
+        "changed",
+        "explanation",
+        "error"
+      ],
+      "type": "object"
+    },
+    "TraceStepLine": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/StoredTraceStep"
+        },
+        "schemaVersion": {
+          "const": "1.0.0",
+          "type": "string"
+        },
+        "type": {
+          "const": "step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "schemaVersion",
+        "data"
+      ],
+      "type": "object"
+    },
+    "TraceStreamRecord": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/TraceMetaLine"
+        },
+        {
+          "$ref": "#/$defs/TraceStepLine"
+        },
+        {
+          "$ref": "#/$defs/TraceEndLine"
+        }
+      ]
+    },
+    "UninitializedValueRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "uninitialized",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ValueRef": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PrimitiveValueRef"
+        },
+        {
+          "$ref": "#/$defs/ObjectValueRef"
+        },
+        {
+          "$ref": "#/$defs/NullValueRef"
+        },
+        {
+          "$ref": "#/$defs/UninitializedValueRef"
+        }
+      ]
+    }
+  },
+  "$id": "https://dryrun-visualizer.local/schemas/trace-v1.schema.json",
+  "$ref": "#/$defs/TraceDocument",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DryRun Visualizer TraceDocument v1"
+}
