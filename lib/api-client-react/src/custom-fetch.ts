@@ -111,6 +111,10 @@ function isTextMediaType(mediaType: string | null): boolean {
   );
 }
 
+function isNdjsonMediaType(mediaType: string | null): boolean {
+  return mediaType === "application/x-ndjson" || mediaType === "application/ndjson";
+}
+
 // Use strict equality: in browsers, `response.body` is `null` when the
 // response genuinely has no content.  In React Native, `response.body` is
 // always `undefined` because the ReadableStream API is not implemented —
@@ -365,6 +369,10 @@ export async function customFetch<T = unknown>(
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
     throw new ApiError(response, errorData, requestInfo);
+  }
+
+  if (responseType === "auto" && isNdjsonMediaType(getMediaType(response.headers))) {
+    return response as T;
   }
 
   return (await parseSuccessBody(response, responseType, requestInfo)) as T;
