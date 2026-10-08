@@ -29,7 +29,7 @@ router.get("/languages", async (_req, res) => {
   let available = false;
   try {
     const response = await fetch(`${runnerUrl}/health`, {
-      signal: AbortSignal.timeout(1000),
+      signal: AbortSignal.timeout(10000),
     });
     available = response.ok;
   } catch {
