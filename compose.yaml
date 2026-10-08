@@ -1,0 +1,101 @@
+name: dryrun-visualizer
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - public
+      - api_web
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      RUNNER_URL: http://java-runner:7000
+    expose:
+      - "5000"
+    depends_on:
+      java-runner:
+        condition: service_healthy
+    networks:
+      - api_web
+      - api_runner
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5000/api/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    mem_limit: 384m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+
+  java-runner:
+    build:
+      context: ./services/java-runner
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "7000"
+    expose:
+      - "7000"
+    networks:
+      - api_runner
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7000/health', timeout=2)"
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  public:
+  api_web:
+    internal: true
+  api_runner:
+    internal: true
+
+volumes:
+  caddy_data:
+  caddy_config:
