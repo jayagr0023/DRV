@@ -1,2 +1,0 @@
-- [Tracing and sandbox boundaries](tracing-sandbox-boundary.md) — Use launching JDI and keep container privileges in an isolated runner service, never the API.
-- [Pending work only](pending-work-only.md) — Check what is complete and implement only remaining DryRun requirements in phase order.
