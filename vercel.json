@@ -1,0 +1,6 @@
+{
+  "installCommand": "npm ci",
+  "buildCommand": "PORT=18670 BASE_PATH=/ NODE_ENV=production npm run build --workspace=@workspace/dryrun-visualizer",
+  "outputDirectory": "artifacts/dryrun-visualizer/dist/public",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

@@ -194,6 +194,51 @@ See [deploy/README.md](deploy/README.md) for the step-by-step Oracle Cloud
 Always Free VM setup, DNS and firewall requirements, Compose commands,
 health checks, updates, and operations.
 
+## Deploy the frontend on Vercel and services on Render
+
+The frontend can be hosted as a Vercel static site while the Express API and
+Java runner run as separate Render services. The API must be publicly reachable
+by the browser; keep the runner private and connect it to the API over Render's
+private network. Deploy both Render services in the same region.
+
+### Render API and Java runner
+
+Create two Render services from this repository:
+
+1. Create a **private service** for the Java runner with runtime **Docker**,
+   Dockerfile path `services/java-runner/Dockerfile`, and Docker build context
+   `services/java-runner`. Set `PORT` to `7000`. Use an always-on instance with
+   enough memory for Java execution.
+2. Create a public **web service** for the API with runtime **Docker**,
+   Dockerfile path `deploy/api.Dockerfile`, and Docker build context `.`. Set
+   `PORT` to `5000` and `RUNNER_URL` to the runner's internal address shown in
+   its Render dashboard, including `http://` and `:7000` (for example,
+   `http://<runner-internal-host>:7000`).
+3. After the API deploys, verify
+   `https://<api-service>.onrender.com/api/healthz` and
+   `https://<api-service>.onrender.com/api/languages`. The language list should
+   include Java.
+
+### Vercel frontend
+
+Import the repository into Vercel with the repository root as the project root.
+The root [`vercel.json`](./vercel.json) supplies the workspace build command,
+static output directory, and SPA rewrite. Add this Vercel environment variable
+for the Production environment (and Preview too, if previews should use the
+same API):
+
+```text
+VITE_API_BASE_URL=https://<api-service>.onrender.com
+```
+
+Use the API origin only; do not append `/api`. Redeploy after setting the
+variable, since Vite embeds it into the frontend at build time.
+
+The API currently allows cross-origin requests so the Vercel site can call it.
+For a public deployment, protect and monitor trace execution: submitted Java
+programs consume CPU and memory. Render free web services may sleep when idle;
+use always-on instances where reliable execution availability is required.
+
 Deployment files:
 
 - [compose.yaml](compose.yaml) — services, private networks, health checks,
