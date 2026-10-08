@@ -11,6 +11,7 @@ import type { TraceFrameRef } from './traceFrameRef';
 import type { TraceStepEvent } from './traceStepEvent';
 import type { TraceStepHeap } from './traceStepHeap';
 import type { TraceStepStatics } from './traceStepStatics';
+import type { ValueRef } from './valueRef';
 
 export interface TraceStep {
   /** @minimum 0 */
@@ -19,6 +20,7 @@ export interface TraceStep {
   /** @nullable */
   line: number | null;
   frame: TraceFrameRef;
+  returnValue?: ValueRef;
   /** @maxItems 50 */
   stack: StackFrame[];
   /** @minimum 0 */

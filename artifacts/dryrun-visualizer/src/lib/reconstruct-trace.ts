@@ -93,6 +93,7 @@ export function reconstructNextStep(
     event: entry.event,
     line: entry.line,
     frame: clone(entry.frame),
+    returnValue: entry.returnValue,
     stackTruncated: entry.stackTruncated,
     stdout: entry.stdout,
     stderr: entry.stderr,

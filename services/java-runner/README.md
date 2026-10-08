@@ -6,7 +6,8 @@ the public API and inside a restricted container.
 
 ## Local development
 
-Requires Python 3 and JDK 21+ on `PATH`:
+Requires Python 3 and JDK 21+ on `PATH`. User programs are compiled against
+Java 21 APIs even when a newer JDK is installed, matching the container runtime.
 
 ```powershell
 $env:PORT='7000'
@@ -27,6 +28,22 @@ docker run --rm --name dryrun-java -p 7000:7000 --network none --memory 512m --c
 ```
 
 The runner launches the debuggee through the JDK JDI launching connector and
-emits one step record per user-source line. It captures visible local variables
-and call frames. Heap object inspection, exception requests, and richer
-collection rendering remain follow-up work behind this same protocol.
+emits one step record per user-source line across the classes in the uploaded
+source file. It captures visible local variables, call frames, arrays,
+user-defined objects, and the fields backing standard `java.util` collections.
+When compilation fails because an unqualified public JDK class is missing, the
+runner consults the active JDK image and retries with explicit imports for
+unambiguous class names. Explicit imports remain recommended when names are
+ambiguous. The source lines shown in the trace still match the uploaded file.
+Compilation and uncaught runtime failures are returned as diagnostics with
+source-line locations when the compiler or JVM provides them.
+
+The trace is a source-level dry run: it records executable line events rather
+than every bytecode operation. Object references are followed through nested
+structures (including cycles) up to the runner's 500-object heap limit;
+platform objects outside the common collection and numeric types are
+intentionally summarized. The runner accepts one uploaded source file with
+helper classes in that file; external dependencies, multi-file projects,
+native code, and bytecode-level events are not supported. In the inspector,
+click a reference ID to jump to that object's fields and continue following
+the structure.

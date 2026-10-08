@@ -383,6 +383,8 @@ components:
           type: ["integer", "null"]
         frame:
           $ref: "#/components/schemas/TraceFrameRef"
+        returnValue:
+          $ref: "#/components/schemas/ValueRef"
         stack:
           type: array
           maxItems: 50
@@ -459,6 +461,8 @@ components:
           type: ["integer", "null"]
         frame:
           $ref: "#/components/schemas/TraceFrameRef"
+        returnValue:
+          $ref: "#/components/schemas/ValueRef"
         stackTruncated:
           type: integer
           minimum: 0
@@ -621,4 +625,3 @@ components:
         end:
           $ref: "#/components/schemas/TraceEnd"
       required: [traceId, schemaVersion, language, languageVersion, createdAt, source, stdin, meta, steps, annotations, end]
-

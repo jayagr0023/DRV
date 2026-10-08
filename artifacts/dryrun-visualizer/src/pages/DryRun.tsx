@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import CodeMirror from '@uiw/react-codemirror';
 import { java } from '@codemirror/lang-java';
@@ -6,7 +6,7 @@ import { StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView } from '@codemirror/view';
 import {
   AlertCircle, ArrowDown, Braces, Check, ChevronLeft, ChevronRight, CircleHelp,
-  Cpu, Database, FileCode2, Layers3, Moon, Play, RotateCcw, Sun, Terminal,
+  Cpu, Database, FileCode2, Layers3, Moon, Play, RotateCcw, SkipForward, Sun, Terminal, Upload,
   Workflow, Zap,
 } from 'lucide-react';
 import {
@@ -14,11 +14,12 @@ import {
   useCreateTrace, useGetDryRunHealth, useHealthCheck, useListLanguages,
 } from '@workspace/api-client-react';
 import type {
-  HeapObject, TraceDiagnostic, TraceDocument, TraceEnd, TraceMetaLine,
+  HeapObject, TraceDiagnostic, TraceEnd,
   TraceAnnotation, TraceStep, ValueRef,
 } from '@workspace/api-client-react';
 import type { ThemeChoice } from '@/App';
-import { consumeTraceResponse } from '@/lib/trace-response';
+import { RuntimeVisualizer } from '@/components/RuntimeVisualizer';
+import { consumeTraceResponse, stdoutThroughStep } from '@/lib/trace-response';
 import { useWorkspace } from '@/state/workspace';
 
 const setActiveLine = StateEffect.define<number>();
@@ -52,6 +53,23 @@ function formatValue(value: ValueRef | unknown): string {
   return JSON.stringify(value);
 }
 
+function ValueDisplay({ value, heap }: { value: ValueRef | unknown; heap?: Record<string, HeapObject> }) {
+  if (record(value) && value.kind === 'ref' && typeof value.id === 'string') {
+    const object = heap?.[value.id];
+    if (object) {
+      return <a className="heap-reference-link" href={`#heap-object-${object.id}`} title={`Jump to ${object.type}`} onClick={(event) => {
+        event.preventDefault();
+        const target = window.document.getElementById(`heap-object-${object.id}`);
+        if (target instanceof HTMLDetailsElement) target.open = true;
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }}>
+        ref → {object.id} <span>{object.type}</span>
+      </a>;
+    }
+  }
+  return formatValue(value);
+}
+
 function Header({ theme, setTheme }: { theme: ThemeChoice; setTheme: (theme: ThemeChoice) => void }) {
   return <header className="topbar">
     <Link href="/" className="brand" aria-label="DryRun Visualizer home"><span className="brand-mark"><Workflow size={18} /></span><span>dryrun<span className="brand-sub"> / execution lab</span></span></Link>
@@ -68,20 +86,20 @@ function Empty({ icon: Icon, children }: { icon: typeof CircleHelp; children: st
   return <div className="empty-panel"><Icon size={15} aria-hidden="true" /><span>{children}</span></div>;
 }
 
-function ValueRows({ values }: { values: Record<string, ValueRef> }) {
+function ValueRows({ values, heap }: { values: Record<string, ValueRef>; heap?: Record<string, HeapObject> }) {
   const entries = Object.entries(values);
   return entries.length ? <div>{entries.map(([name, value]) =>
-    <div className="data-row" key={name}><span className="data-key">{name}</span><span className="data-value">{formatValue(value)}</span></div>)}</div> : <Empty icon={Braces}>No values are recorded in this section.</Empty>;
+    <div className="data-row" key={name}><span className="data-key">{name}</span><span className="data-value"><ValueDisplay value={value} heap={heap} /></span></div>)}</div> : <Empty icon={Braces}>No values are recorded in this section.</Empty>;
 }
 
-function Inspector({ step }: { step: TraceStep | null }) {
+function Inspector({ step, stdout }: { step: TraceStep | null; stdout: string }) {
   const frame = step?.stack.at(-1);
   const locals = frame?.locals ?? {};
   const showLocals = Object.keys(locals).length > 0;
   const showStack = Boolean(step?.stack.length);
   const showStatics = Boolean(step && Object.keys(step.statics).length);
   const showHeap = Boolean(step && Object.values(step.heap).some((object) => object.type !== 'java.lang.String[]'));
-  const showStdout = Boolean(step?.stdout);
+  const showStdout = Boolean(stdout);
   const showStderr = Boolean(step?.stderr || step?.error);
 
   if (!step) return <div className="lower-grid inspector-empty-state"><Empty icon={Braces}>Run a trace to reveal the state used by the current execution step.</Empty></div>;
@@ -89,31 +107,31 @@ function Inspector({ step }: { step: TraceStep | null }) {
   return <div className="lower-grid">
     {showLocals && <section className="panel compact-panel inspector-panel inspector-locals panel-active" aria-labelledby="locals-heading">
       <div className="panel-head"><div><h2 className="panel-title" id="locals-heading"><Braces size={16} /> Locals</h2><div className="panel-kicker">Current frame · {frame ? `${frame.class}.${frame.method}` : 'awaiting state'}</div></div></div>
-      <div className="panel-content"><ValueRows values={locals} /></div>
+      <div className="panel-content" role="region" aria-label="Current-frame local values" tabIndex={0}><ValueRows values={locals} heap={step.heap} /></div>
     </section>}
     {showStack && <section className="panel compact-panel inspector-panel inspector-stack panel-active" aria-labelledby="stack-heading">
       <div className="panel-head"><div><h2 className="panel-title" id="stack-heading"><Layers3 size={16} /> Call stack</h2><div className="panel-kicker">Active method calls</div></div>{step?.stackTruncated ? <span className="pill">+{step.stackTruncated} hidden</span> : null}</div>
-      <div className="panel-content">{[...step.stack].reverse().map((item, index) =>
+      <div className="panel-content" role="region" aria-label="Active call stack frames" tabIndex={0}>{[...step.stack].reverse().map((item, index) =>
         <div className="data-row" key={`${item.class}.${item.method}-${index}`}><span className="data-key">#{step.stack.length - index}</span><span className="data-value">{item.class}.{item.method}()<small className="row-detail">{item.line === null ? 'source line unavailable' : `line ${item.line}`}</small></span></div>)}</div>
     </section>}
     {showStatics && <section className="panel compact-panel inspector-panel inspector-statics panel-active" aria-labelledby="statics-heading">
       <div className="panel-head"><div><h2 className="panel-title" id="statics-heading"><Zap size={16} /> Static fields</h2><div className="panel-kicker">Class-level state</div></div></div>
-      <div className="panel-content"><ValueRows values={step.statics} /></div>
+      <div className="panel-content" role="region" aria-label="Captured static fields" tabIndex={0}><ValueRows values={step.statics} heap={step.heap} /></div>
     </section>}
     {showHeap && <section className="panel compact-panel inspector-panel inspector-heap panel-active" aria-labelledby="heap-heading">
       <div className="panel-head"><div><h2 className="panel-title" id="heap-heading"><Database size={16} /> Heap</h2><div className="panel-kicker">Objects and references</div></div></div>
-      <div className="panel-content">{Object.values(step.heap).filter((object) => object.type !== 'java.lang.String[]').map((object: HeapObject) =>
-        <details className="heap-object" key={object.id}><summary><span className="mono">{object.id}</span><span>{object.type}</span><span className="pill">{object.size}</span></summary>
+      <div className="panel-content" role="region" aria-label="Captured heap objects" tabIndex={0}>{Object.values(step.heap).filter((object) => object.type !== 'java.lang.String[]').map((object: HeapObject) =>
+        <details className="heap-object" id={`heap-object-${object.id}`} key={object.id}><summary><span className="mono">{object.id}</span><span>{object.type}</span><span className="pill">{object.size}</span></summary>
           {object.truncated && <small className="row-detail">Object detail is truncated by the trace service.</small>}
-          {object.fields && Object.entries(object.fields).map(([key, value]) => <div className="data-row" key={key}><span className="data-key">{key}</span><span className="data-value">{formatValue(value)}</span></div>)}
-          {object.elements?.map((value, index) => <div className="data-row" key={index}><span className="data-key">[{index}]</span><span className="data-value">{formatValue(value)}</span></div>)}
-          {object.entries?.map((entry, index) => <div className="data-row" key={index}><span className="data-key">{formatValue(entry.key)}</span><span className="data-value">{formatValue(entry.value)}</span></div>)}
+          {object.fields && Object.entries(object.fields).map(([key, value]) => <div className="data-row" key={key}><span className="data-key">{key}</span><span className="data-value"><ValueDisplay value={value} heap={step.heap} /></span></div>)}
+          {object.elements?.map((value, index) => <div className="data-row" key={index}><span className="data-key">[{index}]</span><span className="data-value"><ValueDisplay value={value} heap={step.heap} /></span></div>)}
+          {object.entries?.map((entry, index) => <div className="data-row" key={index}><span className="data-key"><ValueDisplay value={entry.key} heap={step.heap} /></span><span className="data-value"><ValueDisplay value={entry.value} heap={step.heap} /></span></div>)}
           {!object.fields && !object.elements && !object.entries && <small className="row-detail">No member detail was included.</small>}
         </details>)}</div>
     </section>}
     {showStdout && <section className="panel compact-panel output-panel inspector-panel inspector-stdout panel-active" aria-labelledby="output-heading">
-      <div className="panel-head"><div><h2 className="panel-title" id="output-heading"><Terminal size={16} /> Standard output</h2><div className="panel-kicker">Text reported at this event</div></div></div>
-      <div className="panel-content"><pre className="output-pre">{step.stdout}</pre></div>
+      <div className="panel-head"><div><h2 className="panel-title" id="output-heading"><Terminal size={16} /> Program output</h2><div className="panel-kicker">Accumulated through this event</div></div></div>
+      <div className="panel-content"><pre className="output-pre">{stdout}</pre></div>
     </section>}
     {showStderr && <section className="panel compact-panel output-panel inspector-panel inspector-stderr panel-active" aria-labelledby="stderr-heading">
       <div className="panel-head"><div><h2 className="panel-title" id="stderr-heading"><AlertCircle size={16} /> Standard error</h2><div className="panel-kicker">Errors reported at this event</div></div></div>
@@ -143,23 +161,54 @@ export default function DryRun({ theme, setTheme }: { theme: ThemeChoice; setThe
   const setActiveIndex = useWorkspace((state) => state.setActiveIndex);
   const setPlaying = useWorkspace((state) => state.setPlaying);
   const setSpeed = useWorkspace((state) => state.setSpeed);
-  const [document, setDocument] = useState<TraceDocument | null>(null);
-  const [streamMeta, setStreamMeta] = useState<TraceMetaLine | null>(null);
   const [steps, setSteps] = useState<TraceStep[]>([]);
   const [end, setEnd] = useState<TraceEnd | null>(null);
   const [diagnostics, setDiagnostics] = useState<TraceDiagnostic[]>([]);
   const [annotations, setAnnotations] = useState<TraceAnnotation[]>([]);
   const [partial, setPartial] = useState(false);
   const [requestError, setRequestError] = useState('');
+  const [sourceName, setSourceName] = useState('Main.java');
+  const [uploadError, setUploadError] = useState('');
   const [runnerUnavailable, setRunnerUnavailable] = useState(false);
   const [readingTrace, setReadingTrace] = useState(false);
   const view = useRef<EditorView | null>(null);
+  const uploadInput = useRef<HTMLInputElement | null>(null);
   const language = languages.data?.languages?.find((item) => item.id.toLowerCase() === 'java' || item.displayName.toLowerCase() === 'java');
   const selected = steps[activeIndex] ?? null;
+  const visibleStdout = useMemo(() => stdoutThroughStep(steps, activeIndex), [steps, activeIndex]);
   const sourceLine = selected?.line ?? null;
+  const codeSizeBytes = useMemo(() => new TextEncoder().encode(code).byteLength, [code]);
   const usesStdin = /\b(?:System\.in|Scanner|readLine\s*\(|next(?:Line|Int|Double|Float|Long|Boolean|Byte|Short)\s*\()/u.test(code) || Boolean(stdin.trim());
-  const canRun = Boolean(language && !languages.isLoading && !languages.isError && !createTrace.isPending && !readingTrace && code.trim() && code.length <= 20000 && stdin.length <= 5000);
+  const canRun = Boolean(language && !languages.isLoading && !languages.isError && !createTrace.isPending && !readingTrace && code.trim() && codeSizeBytes <= 20000 && stdin.length <= 5000);
   const extensions = useMemo(() => [java(), activeLineField, EditorView.lineWrapping], []);
+
+  async function uploadSource(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+
+    setUploadError('');
+    if (!file.name.toLowerCase().endsWith('.java')) {
+      setUploadError('Choose a Java source file with a .java extension.');
+      return;
+    }
+    if (file.size > 20000) {
+      setUploadError('Source file exceeds the trace service limit of 20,000 bytes.');
+      return;
+    }
+
+    try {
+      const source = (await file.text()).replace(/^\uFEFF/u, '');
+      if (new TextEncoder().encode(source).byteLength > 20000) {
+        setUploadError('Source file exceeds the trace service limit of 20,000 bytes.');
+        return;
+      }
+      setCode(source);
+      setSourceName(file.name);
+    } catch {
+      setUploadError('The selected Java source file could not be read.');
+    }
+  }
 
   const move = useCallback((index: number) => {
     setActiveIndex(Math.max(0, Math.min(steps.length - 1, index)));
@@ -167,8 +216,18 @@ export default function DryRun({ theme, setTheme }: { theme: ThemeChoice; setThe
   }, [setActiveIndex, setPlaying, steps.length]);
 
   useEffect(() => {
-    if (sourceLine && view.current) view.current.dispatch({ effects: setActiveLine.of(sourceLine) });
-    else if (view.current) view.current.dispatch({ effects: setActiveLine.of(0) });
+    if (!view.current) return;
+    if (sourceLine && sourceLine <= view.current.state.doc.lines) {
+      const position = view.current.state.doc.line(sourceLine).from;
+      view.current.dispatch({ effects: setActiveLine.of(sourceLine) });
+      const lineBlock = view.current.lineBlockAt(position);
+      const editorScroller = view.current.scrollDOM;
+      if (lineBlock.top < editorScroller.scrollTop || lineBlock.top + lineBlock.height > editorScroller.scrollTop + editorScroller.clientHeight) {
+        editorScroller.scrollTop = Math.max(0, lineBlock.top - (editorScroller.clientHeight - lineBlock.height) / 2);
+      }
+    } else {
+      view.current.dispatch({ effects: setActiveLine.of(0) });
+    }
   }, [sourceLine, code]);
 
   useEffect(() => {
@@ -200,11 +259,9 @@ export default function DryRun({ theme, setTheme }: { theme: ThemeChoice; setThe
     const latestWorkspace = useWorkspace.getState();
     const requestCode = latestWorkspace.code;
     const requestStdin = latestWorkspace.stdin;
-    if (!requestCode.trim() || requestCode.length > 20000 || requestStdin.length > 5000) return;
+    if (!requestCode.trim() || new TextEncoder().encode(requestCode).byteLength > 20000 || requestStdin.length > 5000) return;
     setRequestError('');
     setRunnerUnavailable(false);
-    setDocument(null);
-    setStreamMeta(null);
     setSteps([]);
     setEnd(null);
     setDiagnostics([]);
@@ -220,16 +277,12 @@ export default function DryRun({ theme, setTheme }: { theme: ThemeChoice; setThe
         throw new Error(response.status === 503 ? 'Runner unavailable. Your code was not executed.' : `Trace request failed with HTTP ${response.status}.`);
       }
       const finalPayload = await consumeTraceResponse(response, (payload) => {
-        setDocument(payload.document);
-        setStreamMeta(payload.meta);
         setSteps(payload.steps);
         setEnd(payload.end);
         setDiagnostics(payload.diagnostics);
         setAnnotations(payload.annotations);
         setPartial(payload.partial);
       });
-      setDocument(finalPayload.document);
-      setStreamMeta(finalPayload.meta);
       setSteps(finalPayload.steps);
       setEnd(finalPayload.end);
       setDiagnostics(finalPayload.diagnostics);
@@ -245,7 +298,6 @@ export default function DryRun({ theme, setTheme }: { theme: ThemeChoice; setThe
   }
 
   const traceHealth = health.data?.status ?? healthz.data?.status;
-  const completed = end !== null;
 
   return <div className="app-shell">
     <Header theme={theme} setTheme={setTheme} />
@@ -263,42 +315,37 @@ export default function DryRun({ theme, setTheme }: { theme: ThemeChoice; setThe
 
       <div className="workspace-grid">
         <section aria-labelledby="editor-heading">
-          <div className="editor-heading"><div><span className="section-index">01</span><div><h2 className="panel-title" id="editor-heading"><FileCode2 size={17} /> Source file</h2><div className="panel-kicker">Java · edit your program and standard input</div></div></div><span className="file-chip">Main.java <i>.java</i></span></div>
+          <div className="editor-heading"><div><span className="section-index">01</span><div><h2 className="panel-title" id="editor-heading"><FileCode2 size={17} /> Source file</h2><div className="panel-kicker">Java · edit your program and standard input</div></div></div><div className="source-file-actions"><input ref={uploadInput} className="source-file-input" type="file" accept=".java,text/x-java-source,text/plain" onChange={uploadSource} aria-label="Choose a Java source file" /><button className="file-upload-button" type="button" onClick={() => uploadInput.current?.click()}><Upload size={14} /> Upload .java</button><span className="file-chip" title={sourceName}>{sourceName}</span></div></div>
           <div className="code-panel">
             <div className="code-top"><span className="code-badge"><span className="code-dot" /> Main.java</span><span>JAVA SOURCE <span className="code-lang-dot" /></span></div>
-            <CodeMirror value={code} height="360px" extensions={extensions} onChange={setCode} onCreateEditor={(editor) => { view.current = editor; }} basicSetup={{ foldGutter: true, highlightActiveLine: false, highlightActiveLineGutter: false }} aria-label="Java source code" data-testid="input-java-code" />
-            <div className="editor-foot"><span>Source</span><span>{code.length.toLocaleString()} / 20,000</span></div>
+            <CodeMirror value={code} height="360px" extensions={extensions} onChange={(value) => { setCode(value); setUploadError(''); }} onCreateEditor={(editor) => { view.current = editor; }} basicSetup={{ foldGutter: true, highlightActiveLine: false, highlightActiveLineGutter: false }} aria-label="Java source code" data-testid="input-java-code" />
+            <div className="editor-foot"><span>Source</span><span>{codeSizeBytes.toLocaleString()} / 20,000 bytes</span></div>
           </div>
-          {usesStdin && <div className="stdin-wrap"><label htmlFor="stdin" className="field-label">Input</label><textarea id="stdin" className="stdin-input" value={stdin} onChange={(event) => setStdin(event.target.value)} rows={3} maxLength={5000} placeholder="Values read by your program" data-testid="input-stdin" /><div className="field-foot">{stdin.length.toLocaleString()} / 5,000</div></div>}
+          {uploadError && <div className="error-banner" role="alert" data-testid="error-source-upload">{uploadError}</div>}
+          {usesStdin && <div className="stdin-wrap"><label htmlFor="stdin" className="field-label">Standard input</label><p className="input-help" id="stdin-help">Enter all input before running. It is sent to System.in when the program starts; separate values with spaces or new lines.</p><textarea id="stdin" className="stdin-input" value={stdin} onChange={(event) => setStdin(event.target.value)} rows={3} maxLength={5000} placeholder={'5\n1 2 3 4 5\n2\n1 3\n2 5'} aria-describedby="stdin-help" data-testid="input-stdin" /><div className="field-foot">{stdin.length.toLocaleString()} / 5,000</div></div>}
           <div className="form-actions"><button className="primary-button" type="button" onClick={runTrace} disabled={!canRun} data-testid="button-run-trace">{createTrace.isPending ? 'Requesting trace…' : readingTrace ? 'Receiving trace…' : <><Play size={15} fill="currentColor" /> Visualize</>}</button></div>
-          {code.length > 20000 && <div className="error-banner" role="alert">Source exceeds the trace API limit of 20,000 characters.</div>}
+          {codeSizeBytes > 20000 && <div className="error-banner" role="alert">Source exceeds the trace service limit of 20,000 bytes.</div>}
           {createTrace.isError && <div className="error-banner" role="alert" data-testid="error-trace-request"><AlertCircle size={14} /> {String((createTrace.error as { message?: string } | null)?.message || 'The trace request failed. The service did not provide execution data.')}</div>}
           {requestError && !createTrace.isError && <div className="error-banner" role="alert" data-testid="error-trace-response">{requestError}</div>}
         </section>
 
-        <div className="results-column" aria-label="Server trace inspection">
-          <section className="panel explain-panel current-panel" aria-labelledby="explanation-heading">
-            <div className="panel-head"><div><span className="section-index">02</span><div><h2 className="panel-title" id="explanation-heading"><CircleHelp size={17} /> Event explanation</h2><div className="panel-kicker">Text supplied by the trace service</div></div></div>{selected ? <span className={`semantic-tag ${selected.event}`}>{selected.event}</span> : <span className="pill">NO EVENT</span>}</div>
-            <div className="explain-body" aria-live="polite" data-testid="text-step-explanation">
-              {selected ? selected.explanation : partial ? 'The stream ended before its end record. Displayed events are only those received from the server.' : 'Select a recorded event to read its server-provided explanation. No explanation is generated locally.'}
-              {selected && <div className="trace-meta"><span>Event {selected.step}</span><span>·</span><span>{selected.line === null ? 'No source line' : `Line ${selected.line}`}</span><span>·</span><span>{selected.changed.length} changed</span></div>}
-            </div>
-          </section>
-          <section className="panel timeline-panel current-panel" aria-labelledby="timeline-heading">
-            <div className="panel-head"><div><span className="section-index">03</span><div><h2 className="panel-title" id="timeline-heading"><Workflow size={16} /> Execution timeline</h2><div className="panel-kicker">{document ? `${document.language} ${document.languageVersion} · ${steps.length} events` : streamMeta ? `${readingTrace ? 'Streaming' : 'Streamed'} ${streamMeta.language} ${streamMeta.languageVersion} · ${steps.length} events` : partial ? 'Partial trace stream · end record not received' : 'Waiting for server trace events'}</div></div></div>{document && <span className="pill">{steps.length} events</span>}</div>
-            {steps.length ? <div className="trace-list" role="list" aria-label="Trace steps">{steps.map((step, index) =>
-              <button key={`${step.step}-${index}`} className="trace-step" type="button" aria-current={activeIndex === index} aria-label={`Event ${step.step}, ${step.event}${step.line === null ? '' : `, line ${step.line}`}`} onClick={() => move(index)} data-testid={`button-step-${index}`}><b>{String(step.step).padStart(2, '0')}</b><small>{step.event}</small><i>{step.line === null ? '—' : `L${step.line}`}</i></button>)}</div> :
-              createTrace.isPending || readingTrace ? <div className="trace-skeleton" role="status" aria-label="Receiving trace response"><i /><i /><i /><span>{readingTrace && streamMeta ? `Receiving server events · ${steps.length} received…` : 'Waiting for the server response…'}</span></div> :
-              <div className="panel-content"><Empty icon={Workflow}>{partial ? 'The server stream contained no complete steps.' : 'No execution data. Source code has not run in the browser.'}</Empty></div>}
-            {partial && <div className="trace-status partial-status"><AlertCircle size={14} /><span>{readingTrace ? 'Receiving a partial trace stream from the server.' : 'Partial stream. The server did not send a completed trace document.'}</span></div>}
-            {completed && <div className={`trace-status final-status final-status-${end.status}`} role="status" data-testid="status-trace-end"><Check size={14} /><span>Final result: <strong>{end.status.replaceAll('_', ' ')}</strong></span><span>· {diagnostics.length} diagnostics</span></div>}
-          </section>
+        <div className="results-column" aria-label="Captured state inspection">
+          {end && <div className={`trace-status final-status final-status-${end.status}`} role="status" data-testid="status-trace-end"><Check size={14} /><span>Trace complete: <strong>{end.status.replaceAll('_', ' ')}</strong></span><span>· {diagnostics.length} diagnostics</span></div>}
+          {partial && !readingTrace && <div className="trace-status partial-status" role="status"><AlertCircle size={14} /><span>Partial trace · end record not received</span></div>}
           {diagnostics.map((item, index) => <div className={`diagnostic diagnostic-${item.severity}`} key={`diagnostic-${item.line ?? 'unknown'}-${item.column ?? 'unknown'}-${index}`} role={item.severity === 'error' ? 'alert' : 'status'}><span className="diagnostic-code">{item.column === null ? 'Diagnostic' : `Column ${item.column}`}</span><span>{item.line === null ? '' : `Line ${item.line} · `}{item.message}</span></div>)}
           {annotations.filter((annotation) => annotation.stepIndex === activeIndex).map((annotation, index) => <div className={`diagnostic diagnostic-${annotation.severity}`} key={`${annotation.code}-${index}`} role={annotation.severity === 'error' ? 'alert' : 'status'}><span className="diagnostic-code">{annotation.code}</span><span>Event {annotation.stepIndex + 1} · {annotation.message}</span></div>)}
           {selected?.error && <div className="diagnostic diagnostic-error" role="alert"><strong>{selected.error.type}</strong><span>{selected.error.message}{selected.error.line === null ? '' : ` · line ${selected.error.line}`}</span></div>}
-          <Inspector step={selected} />
+          <Inspector step={selected} stdout={visibleStdout} />
         </div>
       </div>
+      <RuntimeVisualizer
+        step={selected}
+        previous={activeIndex > 0 ? steps[activeIndex - 1] ?? null : null}
+        steps={steps}
+        activeIndex={activeIndex}
+        onSelect={move}
+        code={code}
+      />
     </main>
     <div className="dock" role="group" aria-label="Trace playback controls">
       <div className="dock-inner"><span className="dock-hint">STEP THROUGH <kbd>←</kbd><kbd>→</kbd></span>
@@ -308,6 +355,7 @@ export default function DryRun({ theme, setTheme }: { theme: ThemeChoice; setThe
         <span className="dock-position" aria-live="polite" data-testid="text-current-position">{steps.length ? `${activeIndex + 1} / ${steps.length}` : '— / —'}</span>
         <label className="speed-control"><span>PACE</span><select aria-label="Playback speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} data-testid="select-playback-speed"><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option></select></label>
         <button className="dock-button dock-first" type="button" aria-label="Jump to first event" disabled={!steps.length || activeIndex === 0} onClick={() => move(0)} data-testid="button-first"><RotateCcw size={16} /></button>
+        <button className="dock-button dock-last" type="button" aria-label="Jump to last event" disabled={!steps.length || activeIndex >= steps.length - 1} onClick={() => move(steps.length - 1)} data-testid="button-last"><SkipForward size={16} /></button>
         <span className="dock-line">{sourceLine ? <><ArrowDown size={13} /> source line {sourceLine}</> : 'source line —'}</span>
       </div>
     </div>

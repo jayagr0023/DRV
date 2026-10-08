@@ -204,6 +204,7 @@ export interface TraceStep {
   /** @nullable */
   line: number | null;
   frame: TraceFrameRef;
+  returnValue?: ValueRef;
   /** @maxItems 50 */
   stack: StackFrame[];
   /** @minimum 0 */
@@ -261,6 +262,7 @@ export interface DeltaStep {
   /** @nullable */
   line: number | null;
   frame: TraceFrameRef;
+  returnValue?: ValueRef;
   /** @minimum 0 */
   stackTruncated: number;
   patch: JsonPatchOperation[];

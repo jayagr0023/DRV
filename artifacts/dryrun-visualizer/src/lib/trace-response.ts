@@ -22,6 +22,11 @@ export type TracePayload = {
   partial: boolean;
 };
 
+export function stdoutThroughStep(steps: Pick<TraceStep, 'stdout'>[], activeIndex: number): string {
+  const visibleStepCount = Math.max(0, Math.min(steps.length, activeIndex + 1));
+  return steps.slice(0, visibleStepCount).map((step) => step.stdout).join('');
+}
+
 const documentShape = CreateTraceResponse.shape;
 const traceStreamRecordSchema = z.discriminatedUnion('type', [
   z.object({

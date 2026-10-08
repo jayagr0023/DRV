@@ -5,7 +5,7 @@ import type {
   TraceEnd,
   TraceStreamRecord,
 } from '@workspace/api-client-react';
-import { consumeTraceResponse } from '../src/lib/trace-response';
+import { consumeTraceResponse, stdoutThroughStep } from '../src/lib/trace-response';
 import { reconstructSteps } from '../src/lib/reconstruct-trace';
 
 const keyframe: KeyframeStep = {
@@ -84,6 +84,18 @@ test('reconstructs deltas without mutating their keyframe', () => {
   assert.deepEqual(keyframe.snapshot.statics.count, { kind: 'prim', type: 'int', value: 1 });
 });
 
+test('preserves return values for their event and clears them on the next event', () => {
+  const returnDelta = {
+    ...delta,
+    event: 'return' as const,
+    returnValue: { kind: 'prim' as const, type: 'int', value: 5 },
+  };
+  const steps = reconstructSteps([keyframe, returnDelta, { ...delta, step: 2 }]);
+
+  assert.deepEqual(steps[1].returnValue, { kind: 'prim', type: 'int', value: 5 });
+  assert.equal(steps[2].returnValue, undefined);
+});
+
 test('rejects patch paths outside mutable trace state', () => {
   assert.throws(() => reconstructSteps([
     keyframe,
@@ -109,4 +121,17 @@ test('accepts and closes a complete streamed trace', async () => {
   assert.equal(result.steps.length, 1);
   assert.equal(result.end?.status, 'ok');
   assert.equal(result.partial, false);
+});
+
+test('accumulates program output through the selected event', () => {
+  const steps = [
+    { stdout: 'Enter size: ' },
+    { stdout: 'Enter elements: ' },
+    { stdout: '1 2 3\nSum is 6\n' },
+  ];
+
+  assert.equal(stdoutThroughStep(steps, 0), 'Enter size: ');
+  assert.equal(stdoutThroughStep(steps, 2), 'Enter size: Enter elements: 1 2 3\nSum is 6\n');
+  assert.equal(stdoutThroughStep(steps, -1), '');
+  assert.equal(stdoutThroughStep(steps, 99), 'Enter size: Enter elements: 1 2 3\nSum is 6\n');
 });

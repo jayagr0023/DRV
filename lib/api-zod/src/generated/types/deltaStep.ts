@@ -9,6 +9,7 @@ import type { DeltaStepEvent } from './deltaStepEvent';
 import type { JsonPatchOperation } from './jsonPatchOperation';
 import type { TraceError } from './traceError';
 import type { TraceFrameRef } from './traceFrameRef';
+import type { ValueRef } from './valueRef';
 
 export interface DeltaStep {
   storage: 'delta';
@@ -18,6 +19,7 @@ export interface DeltaStep {
   /** @nullable */
   line: number | null;
   frame: TraceFrameRef;
+  returnValue?: ValueRef;
   /** @minimum 0 */
   stackTruncated: number;
   patch: JsonPatchOperation[];

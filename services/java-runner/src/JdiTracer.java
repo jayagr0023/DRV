@@ -19,11 +19,13 @@ import com.sun.jdi.event.EventIterator;
 import com.sun.jdi.event.EventQueue;
 import com.sun.jdi.event.EventSet;
 import com.sun.jdi.event.BreakpointEvent;
+import com.sun.jdi.event.MethodExitEvent;
 import com.sun.jdi.event.VMDeathEvent;
 import com.sun.jdi.event.VMDisconnectEvent;
 import com.sun.jdi.event.VMStartEvent;
 import com.sun.jdi.request.EventRequestManager;
 import com.sun.jdi.request.BreakpointRequest;
+import com.sun.jdi.request.MethodExitRequest;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -44,6 +46,11 @@ public final class JdiTracer {
   private static final Map<Long, String> OBJECT_IDS = new HashMap<>();
   private static int nextObjectId = 1;
   private static final String userClass = System.getenv().getOrDefault("DRYRUN_MAIN_CLASS", "Main");
+  private static final String userSourceFile = System.getenv().getOrDefault("DRYRUN_SOURCE_FILE", "Main.java");
+  private static final int syntheticImportCount = Integer.parseInt(
+      System.getenv().getOrDefault("DRYRUN_SYNTHETIC_IMPORTS", "0"));
+  private static final int importInsertionLine = Integer.parseInt(
+      System.getenv().getOrDefault("DRYRUN_IMPORT_INSERTION_LINE", "0"));
 
   public static void main(String[] args) throws Exception {
     if (args.length < 2) throw new IllegalArgumentException("Usage: JdiTracer <classes> <stdin-file>");
@@ -65,7 +72,6 @@ public final class JdiTracer {
     classPrepare.enable();
     int step = 0;
     boolean stopped = false;
-    boolean vmDied = false;
     while (!stopped) {
       EventSet set = queue.remove(1000);
       if (set == null) {
@@ -77,16 +83,23 @@ public final class JdiTracer {
         Event event = events.nextEvent();
         if (event instanceof BreakpointEvent line) {
           Location location = line.location();
-          if (isUserClass(location.declaringType().name()) && location.lineNumber() > 0) {
-            System.out.println(snapshot(step++, line.thread(), location, stdout.take(), stderr.take()));
+          if (isUserClass(location.declaringType()) && location.lineNumber() > 0) {
+            System.out.println(snapshot(step++, line.thread(), location, stdout.take(), stderr.take(), "line", null, false));
+            System.out.flush();
+          }
+        } else if (event instanceof MethodExitEvent exit) {
+          Location location = exit.location();
+          if (isUserClass(location.declaringType())) {
+            boolean hasReturnValue = !exit.method().returnTypeName().equals("void");
+            Value returnValue = hasReturnValue && vm.canGetMethodReturnValues() ? exit.returnValue() : null;
+            System.out.println(snapshot(step++, exit.thread(), location, stdout.take(), stderr.take(), "return", returnValue, hasReturnValue));
             System.out.flush();
           }
         } else if (event instanceof ClassPrepareEvent prepared) {
-          installBreakpoints(manager, prepared.referenceType());
+          installBreakpoints(manager, prepared.referenceType(), vm.canGetMethodReturnValues());
         } else if (event instanceof VMStartEvent) {
           // Wait for the user class to prepare before requesting source steps.
         } else if (event instanceof VMDeathEvent) {
-          vmDied = true;
           stopped = true;
         } else if (event instanceof VMDisconnectEvent) {
           stopped = true;
@@ -97,7 +110,7 @@ public final class JdiTracer {
     stdout.join(500);
     stderr.join(500);
     int exitCode = process.waitFor();
-    System.out.println("{\"kind\":\"end\",\"status\":" + string(vmDied || exitCode == 0 ? "ok" : "runtime_error")
+    System.out.println("{\"kind\":\"end\",\"status\":" + string(exitCode == 0 ? "ok" : "runtime_error")
       + ",\"exitCode\":" + exitCode + ",\"stdout\":" + string(stdout.take()) + ",\"stderr\":" + string(stderr.take()) + "}");
     System.out.flush();
     if (process.isAlive()) process.destroyForcibly();
@@ -108,16 +121,33 @@ public final class JdiTracer {
     }
   }
 
-  private static boolean isUserClass(String name) {
-    return name.equals(userClass) || name.startsWith(userClass + "$");
+  private static boolean isUserClass(ReferenceType type) {
+    String name = type.name();
+    if (name.equals(userClass) || name.startsWith(userClass + "$")) return true;
+    try {
+      return type.sourceName().equals(userSourceFile);
+    } catch (com.sun.jdi.AbsentInformationException ignored) {
+      return false;
+    }
   }
 
-  private static void installBreakpoints(EventRequestManager manager, ReferenceType type) {
-    if (!isUserClass(type.name())) return;
+  private static void installBreakpoints(EventRequestManager manager, ReferenceType type, boolean canGetReturnValues) {
+    if (System.getenv("DRYRUN_DEBUG") != null) {
+      System.err.println("prepare=" + type.name() + " user=" + userClass);
+    }
+    if (!isUserClass(type)) return;
     try {
+      if (System.getenv("DRYRUN_DEBUG") != null) {
+        System.err.println("lines=" + type.allLineLocations().size());
+      }
       for (Location location : type.allLineLocations()) {
         if (location.lineNumber() <= 0) continue;
         BreakpointRequest request = manager.createBreakpointRequest(location);
+        request.enable();
+      }
+      if (canGetReturnValues) {
+        MethodExitRequest request = manager.createMethodExitRequest();
+        request.addClassFilter(type);
         request.enable();
       }
     } catch (com.sun.jdi.AbsentInformationException | com.sun.jdi.VMDisconnectedException ignored) {
@@ -138,11 +168,27 @@ public final class JdiTracer {
     return "\"" + value.replace("\"", "\\\"") + "\"";
   }
 
-  private static String snapshot(int step, ThreadReference thread, Location location, String stdout, String stderr) throws Exception {
+  private static int sourceLine(int line) {
+    return line > importInsertionLine ? line - syntheticImportCount : line;
+  }
+
+  private static String snapshot(
+      int step,
+      ThreadReference thread,
+      Location location,
+      String stdout,
+      String stderr,
+      String eventType,
+      Value returnValue,
+      boolean hasReturnValue
+  ) throws Exception {
     HeapCapture capture = new HeapCapture();
+    Integer line = location.lineNumber() > 0 ? sourceLine(location.lineNumber()) : null;
+    String returnValueJson = hasReturnValue ? capture.value(returnValue) : null;
     StringBuilder json = new StringBuilder();
     json.append("{\"step\":").append(step)
-        .append(",\"event\":\"line\",\"line\":").append(location.lineNumber())
+        .append(",\"event\":").append(string(eventType)).append(",\"line\":")
+        .append(line == null ? "null" : line)
         .append(",\"frame\":{\"method\":").append(string(location.method().name()))
         .append(",\"class\":").append(string(location.declaringType().name())).append("}")
         .append(",\"stack\":[");
@@ -153,12 +199,18 @@ public final class JdiTracer {
       if (index < frames.size() - 1) json.append(',');
       appendFrame(json, frames.get(index), capture);
     }
-    json.append("],\"stackTruncated\":").append(Math.max(0, frames.size() - count))
+    json.append("],\"stackTruncated\":").append(Math.max(0, frames.size() - count));
+    if (hasReturnValue) json.append(",\"returnValue\":").append(returnValueJson);
+    json
         .append(",\"statics\":").append(appendStatics(location.declaringType(), capture))
         .append(",\"heap\":").append(capture.json())
         .append(",\"stdout\":").append(string(stdout))
         .append(",\"stderr\":").append(string(stderr)).append(",\"changed\":[]")
-      .append(",\"explanation\":").append(string("Executing " + location.declaringType().name() + "." + location.method().name() + " at line " + location.lineNumber() + "."))
+        .append(",\"explanation\":").append(string(eventType.equals("return")
+            ? "Returned from " + location.declaringType().name() + "." + location.method().name()
+                + (hasReturnValue ? " with a value" : "")
+                + (line == null ? "." : " at line " + line + ".")
+            : "Executing " + location.declaringType().name() + "." + location.method().name() + " at line " + line + "."))
         .append(",\"error\":null}");
     return json.toString();
   }
@@ -167,7 +219,7 @@ public final class JdiTracer {
     Location location = frame.location();
     json.append("{\"method\":").append(string(location.method().name()))
         .append(",\"class\":").append(string(location.declaringType().name()))
-        .append(",\"line\":").append(location.lineNumber())
+        .append(",\"line\":").append(sourceLine(location.lineNumber()))
         .append(",\"locals\":{");
     try {
       List<com.sun.jdi.LocalVariable> variables = frame.visibleVariables();
@@ -204,6 +256,10 @@ public final class JdiTracer {
     private final java.util.Set<Long> visiting = new java.util.HashSet<>();
 
     String value(Value value) {
+      return value(value, 0);
+    }
+
+    private String value(Value value, int depth) {
       if (value == null) return "{\"kind\":\"null\"}";
       if (value instanceof PrimitiveValue primitive) {
         String text = primitive.toString();
@@ -212,7 +268,7 @@ public final class JdiTracer {
       }
       if (value instanceof ObjectReference reference) {
         String id = OBJECT_IDS.computeIfAbsent(reference.uniqueID(), ignored -> "o" + nextObjectId++);
-        capture(reference, 0);
+        capture(reference, depth);
         return "{\"kind\":\"ref\",\"id\":" + string(id) + "}";
       }
       return "{\"kind\":\"uninitialized\"}";
@@ -226,22 +282,18 @@ public final class JdiTracer {
       visiting.add(uniqueId);
       objects.put(uniqueId, "{\"id\":" + string(id) + ",\"type\":" + string(reference.referenceType().name()) + ",\"kind\":\"object\",\"fields\":{},\"size\":0}");
       String object;
-      if (depth >= 6) {
-        object = "{\"id\":" + string(id) + ",\"type\":" + string(reference.referenceType().name()) + ",\"kind\":\"object\",\"fields\":{},\"size\":0,\"truncated\":true}";
-      } else if (reference instanceof ArrayReference array) {
+      if (reference instanceof ArrayReference array) {
         StringBuilder elements = new StringBuilder("[");
         int count = Math.min(array.length(), 50);
         for (int index = 0; index < count; index++) {
           if (index > 0) elements.append(',');
-          elements.append(value(array.getValue(index)));
+          elements.append(value(array.getValue(index), depth + 1));
         }
         elements.append(']');
         object = "{\"id\":" + string(id) + ",\"type\":" + string(reference.referenceType().name()) + ",\"kind\":\"array\",\"elements\":" + elements + ",\"size\":" + array.length() + (array.length() > count ? ",\"truncated\":true" : "") + "}";
       } else if (reference instanceof StringReference text) {
         object = "{\"id\":" + string(id) + ",\"type\":\"String\",\"kind\":\"string\",\"elements\":[{\"kind\":\"prim\",\"type\":\"string\",\"value\":" + string(text.value()) + "}],\"size\":" + text.value().length() + "}";
-      } else if (reference.referenceType().name().startsWith("java.")
-          || reference.referenceType().name().startsWith("javax.")
-          || reference.referenceType().name().startsWith("jdk.")) {
+      } else if (isHiddenPlatformType(reference.referenceType().name())) {
         object = "{\"id\":" + string(id) + ",\"type\":" + string(reference.referenceType().name()) + ",\"kind\":\"object\",\"fields\":{},\"size\":0,\"truncated\":true}";
       } else {
         StringBuilder fields = new StringBuilder("{");
@@ -251,7 +303,7 @@ public final class JdiTracer {
           if (field.isStatic() || count >= 50) continue;
           if (!first) fields.append(',');
           first = false;
-          fields.append(string(field.name())).append(':').append(value(reference.getValue(field)));
+          fields.append(string(field.name())).append(':').append(value(reference.getValue(field), depth + 1));
           count++;
         }
         fields.append('}');
@@ -259,6 +311,25 @@ public final class JdiTracer {
       }
       objects.put(uniqueId, object);
       visiting.remove(uniqueId);
+    }
+
+    private boolean isHiddenPlatformType(String type) {
+      if (type.equals("java.util.Scanner")) return true;
+      if (type.startsWith("java.util.")) return false;
+      if (type.startsWith("java.math.")) return false;
+      if (java.util.Set.of(
+          "java.lang.Boolean",
+          "java.lang.Byte",
+          "java.lang.Character",
+          "java.lang.Double",
+          "java.lang.Float",
+          "java.lang.Integer",
+          "java.lang.Long",
+          "java.lang.Short"
+      ).contains(type)) return false;
+      return type.startsWith("java.")
+          || type.startsWith("javax.")
+          || type.startsWith("jdk.");
     }
 
     String json() {

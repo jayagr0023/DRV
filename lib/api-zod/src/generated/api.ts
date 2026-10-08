@@ -90,6 +90,7 @@ export const createTraceResponseStepsItemOneStepMin = 0;
 
 export const createTraceResponseStepsItemOneSnapshotStepMin = 0;
 
+export const createTraceResponseStepsItemOneSnapshotReturnValueTwoIdRegExp = new RegExp('^o[1-9][0-9]*$');
 export const createTraceResponseStepsItemOneSnapshotStackItemLocalsTwoIdRegExp = new RegExp('^o[1-9][0-9]*$');
 export const createTraceResponseStepsItemOneSnapshotStackMax = 50;
 
@@ -127,6 +128,7 @@ export const createTraceResponseStepsItemOneSnapshotHeapFourSizeMin = 0;
 
 export const createTraceResponseStepsItemTwoStepMin = 0;
 
+export const createTraceResponseStepsItemTwoReturnValueTwoIdRegExp = new RegExp('^o[1-9][0-9]*$');
 export const createTraceResponseStepsItemTwoStackTruncatedMin = 0;
 
 export const createTraceResponseStepsItemTwoPatchItemPathRegExp = new RegExp('^/(stack|statics|heap)(/.*)?$');
@@ -155,6 +157,18 @@ export const CreateTraceResponse = zod.object({
   "method": zod.string(),
   "class": zod.string()
 }),
+  "returnValue": zod.union([zod.object({
+  "kind": zod.literal("prim"),
+  "type": zod.string(),
+  "value": zod.union([zod.string(),zod.number(),zod.boolean()])
+}),zod.object({
+  "kind": zod.literal("ref"),
+  "id": zod.string().regex(createTraceResponseStepsItemOneSnapshotReturnValueTwoIdRegExp)
+}),zod.object({
+  "kind": zod.literal("null")
+}),zod.object({
+  "kind": zod.literal("uninitialized")
+})]).optional(),
   "stack": zod.array(zod.object({
   "method": zod.string(),
   "class": zod.string(),
@@ -430,6 +444,18 @@ export const CreateTraceResponse = zod.object({
   "method": zod.string(),
   "class": zod.string()
 }),
+  "returnValue": zod.union([zod.object({
+  "kind": zod.literal("prim"),
+  "type": zod.string(),
+  "value": zod.union([zod.string(),zod.number(),zod.boolean()])
+}),zod.object({
+  "kind": zod.literal("ref"),
+  "id": zod.string().regex(createTraceResponseStepsItemTwoReturnValueTwoIdRegExp)
+}),zod.object({
+  "kind": zod.literal("null")
+}),zod.object({
+  "kind": zod.literal("uninitialized")
+})]).optional(),
   "stackTruncated": zod.number().int().min(createTraceResponseStepsItemTwoStackTruncatedMin),
   "patch": zod.array(zod.object({
   "op": zod.enum(['add', 'remove', 'replace']),
