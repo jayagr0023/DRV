@@ -4,15 +4,10 @@ modules = ["nodejs-24", "python-base-3.13"]
 router = "application"
 deploymentTarget = "autoscale"
 
-[deployment.postBuild]
-args = ["pnpm", "store", "prune"]
-env = { "CI" = "true" }
-
 [workflows]
 runButton = "Project"
 
 [agent]
-stack = "PNPM_WORKSPACE"
 expertMode = true
 
 [postMerge]
