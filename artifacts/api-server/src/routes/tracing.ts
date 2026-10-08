@@ -67,7 +67,11 @@ router.post("/trace", async (req, res): Promise<void> => {
   try {
     const response = await fetch(`${runnerUrl}/trace`, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+      headers: {
+        "content-type": "application/json",
+        accept: "application/x-ndjson",
+        Authorization: `Bearer ${process.env.RUNNER_API_KEY}`,
+      },
       body: JSON.stringify(parsed.data),
       signal: AbortSignal.timeout(javaDescriptor.limits.totalTimeoutMs),
     });
