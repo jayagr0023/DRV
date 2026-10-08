@@ -1,10 +1,9 @@
 FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
-RUN corepack enable
 COPY . .
-RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @workspace/api-server run build
+RUN npm ci
+RUN npm run build --workspace=@workspace/api-server
 
 FROM node:24-bookworm-slim AS runtime
 

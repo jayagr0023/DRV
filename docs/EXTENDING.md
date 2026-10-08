@@ -1,7 +1,7 @@
 # Extending DryRun Visualizer
 
 The shared wire contract is `lib/api-spec/openapi.yaml`. After changing it,
-run `pnpm --filter @workspace/api-spec run codegen` and
+run `npm run codegen --workspace=@workspace/api-spec` and
 `python3 scripts/export_trace_schema.py`. Keep TypeScript/Zod, Pydantic, and
 JSON Schema validation aligned.
 

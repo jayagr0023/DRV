@@ -22,7 +22,7 @@ they are captured in the program.
 
 | Area | Technology |
 | --- | --- |
-| Workspace and package management | pnpm 10 workspaces |
+| Workspace and package management | npm 11 workspaces |
 | Web application | React 19, TypeScript, Vite 7 |
 | Editor and UI | CodeMirror 6, Radix UI, Tailwind CSS |
 | Client state and requests | Zustand, TanStack Query, generated API client, Zod schemas |
@@ -74,8 +74,7 @@ compose.yaml                  Full single-VM Docker deployment
 For local development:
 
 - Node.js 24
-- pnpm 10.32.1 (the repository pins this in `package.json`; enable it with
-  `corepack enable`)
+- npm 11.10.1 (the repository pins this in `package.json`)
 - Python 3
 - JDK 21 or newer on `PATH` (`java` and `javac`)
 
@@ -87,8 +86,7 @@ deployment configuration supports Linux ARM64 as well as x86-64.
 From the repository root:
 
 ```sh
-corepack enable
-pnpm install --frozen-lockfile
+npm ci
 ```
 
 ## Run locally on Windows (PowerShell)
@@ -115,10 +113,10 @@ Invoke-RestMethod http://localhost:7000/health
 Build the API once, then start it:
 
 ```powershell
-pnpm --filter @workspace/api-server run build
+npm run build --workspace=@workspace/api-server
 $env:PORT = '5000'
 $env:RUNNER_URL = 'http://127.0.0.1:7000'
-pnpm --filter @workspace/api-server run start
+npm run start --workspace=@workspace/api-server
 ```
 
 The API requires `PORT`. `RUNNER_URL` defaults to
@@ -130,7 +128,7 @@ address.
 ```powershell
 $env:PORT = '5173'
 $env:BASE_PATH = '/'
-pnpm --filter @workspace/dryrun-visualizer run dev
+npm run dev --workspace=@workspace/dryrun-visualizer
 ```
 
 Open <http://localhost:5173>. Vite proxies `/api` requests to
@@ -163,9 +161,9 @@ For example, this input provides five array elements, then two query ranges:
 Run from the repository root:
 
 ```sh
-pnpm run typecheck
-pnpm --filter @workspace/dryrun-visualizer run test:trace
-pnpm --filter @workspace/api-server run build
+npm run typecheck
+npm run test:trace --workspace=@workspace/dryrun-visualizer
+npm run build --workspace=@workspace/api-server
 ```
 
 Build the production frontend (Vite requires both environment variables):
@@ -176,14 +174,14 @@ Build the production frontend (Vite requires both environment variables):
 $env:PORT = '18670'
 $env:BASE_PATH = '/'
 $env:NODE_ENV = 'production'
-pnpm --filter @workspace/dryrun-visualizer run build
+npm run build --workspace=@workspace/dryrun-visualizer
 ```
 
 **Bash**
 
 ```sh
 PORT=18670 BASE_PATH=/ NODE_ENV=production \
-  pnpm --filter @workspace/dryrun-visualizer run build
+  npm run build --workspace=@workspace/dryrun-visualizer
 ```
 
 ## Deploy

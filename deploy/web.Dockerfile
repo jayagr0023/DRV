@@ -1,10 +1,9 @@
 FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
-RUN corepack enable
 COPY . .
-RUN pnpm install --frozen-lockfile
-RUN PORT=18670 BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/dryrun-visualizer run build
+RUN npm ci
+RUN PORT=18670 BASE_PATH=/ NODE_ENV=production npm run build --workspace=@workspace/dryrun-visualizer
 
 FROM caddy:2-alpine AS runtime
 

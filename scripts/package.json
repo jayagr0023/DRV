@@ -7,8 +7,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@workspace/api-zod": "workspace:*",
-    "@types/node": "catalog:",
-    "tsx": "catalog:"
+    "@workspace/api-zod": "0.0.0",
+    "@types/node": "^25.3.3",
+    "tsx": "4.23.13"
   }
 }

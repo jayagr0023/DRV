@@ -16,7 +16,7 @@ other. The runner has no internet egress.
 The workspace excludes optional ARM64 native packages for unrelated platforms
 but allows the Linux ARM64 binaries needed by the frontend build. If you change
 dependencies or package-manager configuration, regenerate and commit
-`pnpm-lock.yaml` before deploying.
+`package-lock.json` before deploying.
 
 ## Provision an Oracle Cloud VM
 

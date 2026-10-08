@@ -1,14 +1,19 @@
 {
   "name": "workspace",
   "version": "0.0.0",
-  "packageManager": "pnpm@10.32.1",
+  "packageManager": "npm@11.10.1",
   "license": "MIT",
   "scripts": {
-    "preinstall": "node ./scripts/preinstall.mjs",
-    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "build": "npm run typecheck && npm run build --workspace=@workspace/api-server && npm run build --workspace=@workspace/dryrun-visualizer",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "npm run typecheck:libs && npm run typecheck --workspace=@workspace/api-server --workspace=@workspace/dryrun-visualizer --workspace=@workspace/scripts"
   },
+  "workspaces": [
+    "artifacts/*",
+    "lib/*",
+    "lib/integrations/*",
+    "scripts"
+  ],
   "private": true,
   "devDependencies": {
     "prettier": "^3.9.6",

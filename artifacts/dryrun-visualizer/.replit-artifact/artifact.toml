@@ -12,10 +12,10 @@ paths = [ "/" ]
 localPort = 18670
 
 [services.development]
-run = "pnpm --filter @workspace/dryrun-visualizer run dev"
+run = "npm run dev --workspace=@workspace/dryrun-visualizer"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/dryrun-visualizer", "run", "build" ]
+build = [ "npm", "run", "build", "--workspace=@workspace/dryrun-visualizer" ]
 serve = "static"
 publicDir = "artifacts/dryrun-visualizer/dist/public"
 
