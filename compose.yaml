@@ -34,6 +34,7 @@ services:
       NODE_ENV: production
       PORT: "5000"
       RUNNER_URL: http://java-runner:7000
+      RUNNER_API_KEY: ${RUNNER_API_KEY:?Set RUNNER_API_KEY in .env}
     expose:
       - "5000"
     depends_on:
@@ -64,6 +65,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "7000"
+      RUNNER_API_KEY: ${RUNNER_API_KEY:?Set RUNNER_API_KEY in .env}
     expose:
       - "7000"
     networks:

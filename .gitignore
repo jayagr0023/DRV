@@ -29,9 +29,12 @@ node_modules
 
 # misc
 /.sass-cache
-/.env
-/.env.*
-!/.env.example
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!*.env.example
 /connect.lock
 /coverage
 /libpeerconnection.log

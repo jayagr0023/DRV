@@ -47,14 +47,19 @@ dependencies or package-manager configuration, regenerate and commit
    cd drv
    ```
 
-2. Copy `.env.example` to `.env` and set `SITE_ADDRESS` to your real domain
-   and `ACME_EMAIL` to an address you monitor. Caddy will obtain and renew its
-   HTTPS certificate automatically.
+2. Copy `.env.example` to `.env` and set `SITE_ADDRESS` to your real domain,
+   `ACME_EMAIL` to an address you monitor, and `RUNNER_API_KEY` to a long,
+   random secret. The Compose stack passes the shared key only to the API and
+   runner, which use it to authenticate trace requests. Caddy will obtain and
+   renew its HTTPS certificate automatically.
 
    ```sh
    cp .env.example .env
    nano .env
    ```
+
+   Generate a random key, for example with `openssl rand -hex 32`, and use it
+   for `RUNNER_API_KEY`.
 
 3. Build and start the containers:
 

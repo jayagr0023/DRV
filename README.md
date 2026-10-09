@@ -94,14 +94,28 @@ npm ci
 Open three terminals at the repository root. The Java runner must be available
 before the API can advertise Java or execute traces.
 
+For a fresh checkout, create the local env files from their examples:
+
+```powershell
+Copy-Item .\artifacts\api-server\.env.example .\artifacts\api-server\.env
+Copy-Item .\artifacts\dryrun-visualizer\.env.example .\artifacts\dryrun-visualizer\.env
+```
+
+Replace `RUNNER_API_KEY` in the API env file with a long random value before
+starting the services. Do not commit local `.env` files.
+
 ### Terminal 1: Java runner
 
 ```powershell
 $env:PORT = '7000'
+$env:RUNNER_API_KEY = (Get-Content .\artifacts\api-server\.env |
+  Where-Object { $_ -match '^RUNNER_API_KEY=' } |
+  Select-Object -First 1) -replace '^RUNNER_API_KEY=', ''
 python .\services\java-runner\server.py
 ```
 
-The runner compiles its JDI tracer when the first valid Java trace is received.
+Use the same `RUNNER_API_KEY` in the API and runner. The runner compiles its
+JDI tracer when the first valid Java trace is received.
 Check that it responds:
 
 ```powershell
@@ -114,24 +128,20 @@ Build the API once, then start it:
 
 ```powershell
 npm run build --workspace=@workspace/api-server
-$env:PORT = '5000'
-$env:RUNNER_URL = 'http://127.0.0.1:7000'
 npm run start --workspace=@workspace/api-server
 ```
 
-The API requires `PORT`. `RUNNER_URL` defaults to
-`http://127.0.0.1:7000`; set it explicitly when the runner is not on that
-address.
+The API loads `artifacts/api-server/.env` when started, including its port,
+runner URL, and shared runner key.
 
 ### Terminal 3: frontend
 
 ```powershell
-$env:PORT = '5173'
-$env:BASE_PATH = '/'
 npm run dev --workspace=@workspace/dryrun-visualizer
 ```
 
-Open <http://localhost:5173>. Vite proxies `/api` requests to
+Vite loads `artifacts/dryrun-visualizer/.env`. Open
+<http://localhost:5173>; Vite proxies `/api` requests to
 `http://localhost:5000`.
 
 ### Check local services
@@ -207,17 +217,29 @@ Create two Render services from this repository:
 
 1. Create a **private service** for the Java runner with runtime **Docker**,
    Dockerfile path `services/java-runner/Dockerfile`, and Docker build context
-   `services/java-runner`. Set `PORT` to `7000`. Use an always-on instance with
-   enough memory for Java execution.
+   `services/java-runner`. Set `PORT` to `7000` and `RUNNER_API_KEY` to a long,
+   random secret. Use an always-on instance with enough memory for Java
+   execution.
 2. Create a public **web service** for the API with runtime **Docker**,
    Dockerfile path `deploy/api.Dockerfile`, and Docker build context `.`. Set
-   `PORT` to `5000` and `RUNNER_URL` to the runner's internal address shown in
-   its Render dashboard, including `http://` and `:7000` (for example,
+   `PORT` to `5000`, `RUNNER_API_KEY` to the exact same value configured on the
+   runner, and `RUNNER_URL` to the runner's internal address shown in its
+   Render dashboard, including `http://` and `:7000` (for example,
    `http://<runner-internal-host>:7000`).
 3. After the API deploys, verify
    `https://<api-service>.onrender.com/api/healthz` and
    `https://<api-service>.onrender.com/api/languages`. The language list should
    include Java.
+
+Set these environment variables in the deployed services:
+
+| Service | Variable | Value |
+| --- | --- | --- |
+| Render Java runner | `PORT` | `7000` |
+| Render Java runner | `RUNNER_API_KEY` | A long random secret |
+| Render API | `PORT` | `5000` |
+| Render API | `RUNNER_URL` | Runner's internal URL, e.g. `http://<runner-internal-host>:7000` |
+| Render API | `RUNNER_API_KEY` | The exact same secret as the Java runner |
 
 ### Vercel frontend
 
@@ -231,10 +253,14 @@ same API):
 VITE_API_BASE_URL=https://<api-service>.onrender.com
 ```
 
-Use the API origin only; do not append `/api`. Redeploy after setting the
-variable, since Vite embeds it into the frontend at build time.
+Set `VITE_API_BASE_URL` in the Vercel project's Production environment (and
+Preview too, if previews should use the same API). Use the API origin only; do
+not append `/api`. Redeploy after setting the variable, since Vite embeds it
+into the frontend at build time.
 
-The API currently allows cross-origin requests so the Vercel site can call it.
+Set the same `RUNNER_API_KEY` in the API and Java runner service environments;
+the API uses it to authenticate its trace requests to the runner. The API
+currently allows cross-origin requests so the Vercel site can call it.
 For a public deployment, protect and monitor trace execution: submitted Java
 programs consume CPU and memory. Render free web services may sleep when idle;
 use always-on instances where reliable execution availability is required.
