@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npm run build && node --env-file=.env -e \"process.env.NODE_ENV='development'; import('./dist/index.mjs')\"",
     "build": "node ./build.mjs",
-    "start": "node --env-file=.env --enable-source-maps ./dist/index.mjs",
+    "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
